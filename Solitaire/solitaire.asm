@@ -118,6 +118,8 @@ _RESET
   lda 0
     sta <cursor>
     sta <key_0>
+    
+  jsr [DrawFooter]
 _FIM
   wai
   ldx <cursor>
@@ -137,6 +139,10 @@ _FIM
     bit %0000_0010; bne (down)
     bit %0000_0100; bne (left)
     bit %0000_1000; bne (up)
+    bit %0001_0000; bne (space)
+    bra (noInput)
+    __space
+      jsr [InputSpace]
     bra (noInput)
     __left
     lda <cursor>; and %0000_0111; beq (noInput)
@@ -165,6 +171,50 @@ _FIM
   lda $F4; sta [<0>+Y]
   dec Y;   sta [<0>+Y]
 jmp [FIM]
+_InputSpace
+  
+  lda <cursor>; beq (stockMove)
+rts
+__stockMove
+  # Find top of stock
+  ldx $FF
+  ___findTopStock
+    inc X; lda [stock+X]
+  cmp $FF; bne (findTopStock)
+  stx <6>
+  ldx $FF
+  ___findTopWaste
+    inc X; lda [waste+X]
+  cmp $FF; bne (findTopWaste)
+  stx <7>
+  
+  ldx <6>; beq (reflip)
+  ldy <7>
+  dec X; lda [stock+X]; and %0111_1111; sta [waste+Y]
+  lda $FF; sta [stock+X]
+  
+  # Debug
+  #lda <6>; sta [$6800]
+  #lda <7>; sta [$6820]
+  
+  ldx stockID; jsr [DrawStackTop]
+  ldx wasteID; jsr [DrawStackTop]
+  
+rts
+__reflip
+  ldx <7>; beq (done); dec X
+  ldy 0
+  ___loop
+    lda [waste+X]; ora $80; sta [stock+Y]
+    lda $FF; sta [waste+X]
+  inc Y; dec X; bpl (loop)
+  # A should still be $FF
+  sta [stock+Y]
+  
+  ___done
+  ldx stockID; jsr [DrawStackTop]
+  ldx wasteID; jsr [DrawStackTop]
+rts
 
 _StackIDToCursor
   # Pos Lo
@@ -398,10 +448,17 @@ _DrawCard
     lda $FF; sta [<4>+Y]
   tya; clc; adc 29; tay; cmp 160; bne (body)
   
+  # Footer
   lda $BA; sta [<0>+Y]; inc Y
   lda $0F; sta [<0>+Y]; inc Y
            sta [<0>+Y]; inc Y
   lda $BB; sta [<0>+Y]
+  
+  lda $F4
+  ldy 160; sta [<4>+Y]
+  inc Y; sta [<4>+Y]
+  inc Y; sta [<4>+Y]
+  inc Y; sta [<4>+Y]
   
 rts
 __Rank
@@ -485,11 +542,21 @@ _DrawCardShadow
   inc Y  ; sta [<0>+Y]
   inc Y  ; lda $AE; sta [<0>+Y]
   
+  ldy $20
+  __body
+    lda ' '; sta [<0>+Y]
+    inc Y  ; sta [<0>+Y]
+    inc Y  ; sta [<0>+Y]
+    inc Y  ; sta [<0>+Y]
+  tya; clc; adc 29; tay; cmp 160; bne (body)
+  
+  
   ldy 160
   lda $BD; sta [<0>+Y]
   inc Y  ; lda $AC; sta [<0>+Y]
   inc Y  ; sta [<0>+Y]
   inc Y  ; lda $BE; sta [<0>+Y]
+  
   
   lda <1>; pha; clc; adc 4; sta <1>
   
@@ -566,8 +633,29 @@ _DrawStackTop
   inc Y; bra (topFind)
   ___break
   
+  lda <2>; cmp $FF; beq (emptyStack)
+  
   jsr [DrawCard]
 rts
+__emptyStack
+jmp [DrawCardShadow]
+
+_DrawFooter
+  # Color
+  ldx $1F
+  lda $F0
+  __color
+    sta [$6FE0+X]
+  dec X; bpl (color)
+  ldx $00
+  __text
+    lda [string+X]; beq (break)
+    sta [$6BE0+X]
+  inc X; bra (text)
+  ___break
+rts
+__string
+.byte 'move:',$F0,$F1,$F2,$F3,' select:',$AC, $00
 
 .macro xorShift789
   # https://github.com/impomatic/xorshift798/blob/main/6502.asm
